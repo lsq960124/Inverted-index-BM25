@@ -10,30 +10,14 @@ import jieba
 import configparser
 import pandas as pd
 import sqlite3
+jieba.load_userdict('./userdict/2000000-dict.txt')
 
 
-class Doc:
-    docid = 0
-    date_time = ''
-    tf = 0
-    ld = 0
-    def __init__(self, docid, date_time, tf, ld):
-        self.docid = docid
-        self.date_time = date_time
-        self.tf = tf
-        self.ld = ld
-    def __repr__(self):
-        return(str(self.docid) + '\t' + self.date_time + '\t' + str(self.tf) + '\t' + str(self.ld))
-    def __str__(self):
-        return(str(self.docid) + '\t' + self.date_time + '\t' + str(self.tf) + '\t' + str(self.ld))
 
 class IndexModule:
-    stop_words = set()
+
     postings_lists = {}
-    
-    config_path = ''
-    config_encoding = ''
-    
+
     def __init__(self, config_path, config_encoding):
         self.config_path = config_path
         self.config_encoding = config_encoding
@@ -42,6 +26,7 @@ class IndexModule:
         f = open(config['DEFAULT']['stop_words_path'], encoding = config['DEFAULT']['stop_words_encoding'])
         words = f.read()
         self.stop_words = set(words.split('\n'))
+    
 
     def is_number(self, s):
         try:
@@ -64,7 +49,7 @@ class IndexModule:
         return n, cleaned_dict
     
     
-    def write_postings_to_db(self, db_path):
+    def write_postings_and_knowledge_to_db(self, db_path):
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
         
@@ -72,30 +57,43 @@ class IndexModule:
         c.execute('''CREATE TABLE postings
                      (term TEXT PRIMARY KEY, df INTEGER, docs TEXT)''')
 
+        c.execute('''DROP TABLE IF EXISTS knowledge''')
+        c.execute('''CREATE TABLE knowledge
+                     (id INTEGER PRIMARY KEY, question TEXT, answer TEXT)''')
+
         for key, value in self.postings_lists.items():
             doc_list = '\n'.join(map(str,value[1]))
             t = (key, value[0], doc_list)
             c.execute("INSERT INTO postings VALUES (?, ?, ?)", t)
+        
+        conn.commit()
 
+        for i,question in self.files.items():
+            answer ='标准问“'+ question +'”的答案'
+            t = (i, question, answer)
+            c.execute("INSERT INTO knowledge VALUES (?, ?, ?)", t)
+        
         conn.commit()
         conn.close()
     
-
      
     def construct_postings_lists(self):
         config = configparser.ConfigParser()
         config.read(self.config_path, self.config_encoding)
-        Data = pd.read_csv('data\data.csv', sep='\\t', encoding='utf-8',header=None)
+        Data = pd.read_csv(r'data\data.csv', sep='\t', header=None)
         files = set(Data[1])
+        self.files = {k:v for k,v in enumerate(files)}
+        
         AVG_L = 0
-        for i,x in enumerate(files):
+
+        for i,x in self.files.items():
             
             seg_list = jieba.lcut(x, cut_all=False)
             ld, cleaned_dict = self.clean_list(seg_list)
             AVG_L = AVG_L + ld
             
             for key, value in cleaned_dict.items():
-                #  {'index':i,'frec':value,'len':ld}
+             
                 d = [i, value, ld] 
                 if key in self.postings_lists:
                     self.postings_lists[key][0] = self.postings_lists[key][0] + 1 # df++

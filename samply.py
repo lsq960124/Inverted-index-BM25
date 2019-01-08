@@ -13,19 +13,10 @@ import operator
 import sqlite3
 import configparser
 from datetime import *
+jieba.load_userdict('./userdict/2000000-dict.txt')
+
 
 class SearchEngine:
-    stop_words = set()
-    
-    config_path = ''
-    config_encoding = ''
-    
-    K1 = 0
-    B = 0
-    N = 0
-    AVG_L = 0
-    
-    conn = None
     
     def __init__(self, config_path, config_encoding):
         self.config_path = config_path
@@ -65,17 +56,22 @@ class SearchEngine:
                     cleaned_dict[i] = 1
         return n, cleaned_dict
 
-    def fetch_from_db(self, term):
+    def fetch_postings_db(self, term):
         c = self.conn.cursor()
         c.execute('SELECT * FROM postings WHERE term=?', (term,))
         return(c.fetchone())
     
+    def fetch_knowledge_db(self, id):
+        c = self.conn.cursor()
+        c.execute('SELECT question,answer FROM knowledge WHERE id=?', (id,))
+        return(c.fetchone())
+
     def result_by_BM25(self, sentence):
         seg_list = jieba.lcut(sentence, cut_all=False)
         n, cleaned_dict = self.clean_list(seg_list)
         BM25_scores = {}
         for term in cleaned_dict.keys():
-            r = self.fetch_from_db(term)
+            r = self.fetch_postings_db(term)
             if r is None:
                 continue
             df = r[1]
@@ -97,10 +93,15 @@ class SearchEngine:
         if len(BM25_scores) == 0:
             return 0, []
         else:
-            return 1, BM25_scores
-        
-query = input('请输入你要查询的内容:')        
-se = SearchEngine('./config.ini', 'utf-8')
-flag, id_scores = se.result_by_BM25(query)
-if flag:
-    print('与输入相关的问题索引有以下几条：{}'.format([x for x,y in id_scores]))
+            return 1, [self.fetch_knowledge_db(x) for x,y in BM25_scores][:10]
+#%%     
+import time
+while 1:
+    query = input('请输入你要查询的内容:')   
+    start = time.clock()     
+    se = SearchEngine('./config.ini', 'utf-8')
+    flag, questions = se.result_by_BM25(query)
+    if flag:
+        print('与输入相关的问题索引有以下几条：{}'.format(questions))
+    end = time.clock()-start
+    print('耗时：{}'.format(end))
